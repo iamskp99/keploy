@@ -17,6 +17,7 @@ type Version string
 const (
 	HTTP_EXPORT    Kind = "Http"
 	GENERIC_EXPORT Kind = "Generic"
+	GRPC_EXPORT    Kind = "gRPC"
 )
 
 type Mock struct {
@@ -24,6 +25,21 @@ type Mock struct {
 	Kind    string    `json:"kind" yaml:"kind"`
 	Name    string    `json:"name" yaml:"name"`
 	Spec    yaml.Node `json:"spec" yaml:"spec"`
+}
+
+type GrpcSpec struct {
+	Metadata   map[string]string   `json:"metadata" yaml:"metadata"`
+	Request    MockGrpcReq         `json:"grpc_req" yaml:"grpc_req"`
+	Response   string              `json:"grpc_resp" yaml:"grpc_resp"`
+	Objects    []Object            `json:"objects" yaml:"objects"`
+	Mocks      []string            `json:"mocks" yaml:"mocks,omitempty"`
+	Assertions map[string][]string `json:"assertions" yaml:"assertions,omitempty"`
+	Created    int64               `json:"created" yaml:"created,omitempty"`
+}
+
+type MockGrpcReq struct {
+	Body   string `json:"body" yaml:"body,omitempty"`
+	Method string `json:"method" yaml:"method,omitempty"`
 }
 
 type GenericSpec struct {
