@@ -1,6 +1,7 @@
 package regression
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -146,12 +147,14 @@ func (rg *regression) GetTCS(w http.ResponseWriter, r *http.Request) {
 	mockPath := r.URL.Query().Get("mockPath")
 	offsetStr := r.URL.Query().Get("offset")
 	limitStr := r.URL.Query().Get("limit")
+	reqType := r.URL.Query().Get("reqType")
 	var (
 		offset int
 		limit  int
 		err    error
 		tcs    []models.TestCase
 		eof    bool = rg.testExport
+		ctx    context.Context
 	)
 	if offsetStr != "" {
 		offset, err = strconv.Atoi(offsetStr)
@@ -166,7 +169,16 @@ func (rg *regression) GetTCS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tcs, err = rg.tcSvc.GetAll(r.Context(), graph.DEFAULT_COMPANY, app, &offset, &limit, testCasePath, mockPath)
+	// switch rg.testExport {
+	// case false:
+	ctx = r.Context()
+	ctx = context.WithValue(ctx, "reqType", reqType)
+	tcs, err = rg.tcSvc.GetAll(ctx, graph.DEFAULT_COMPANY, app, &offset, &limit, testCasePath, mockPath)
+	if rg.testExport && testCasePath != "" && mockPath != "" {
+		filteredTcs := ReqTypeFilter(tcs, reqType)
+		tcs = filteredTcs
+	}
+
 	if err != nil {
 		render.Render(w, r, ErrInvalidRequest(err))
 		return
@@ -179,16 +191,148 @@ func (rg *regression) GetTCS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rg *regression) PostTC(w http.ResponseWriter, r *http.Request) {
-
 	data := &TestCaseReq{}
+	var (
+		inserted []string
+		err      error
+	)
 	if err := render.Bind(r, data); err != nil {
-		rg.logger.Error("error parsing request", zap.Error(err))
+		rg.logger.Error("failed to unmarshal testcase in PostTC", zap.Error(err))
 		render.Render(w, r, ErrInvalidRequest(err))
 		return
 	}
 
 	now := time.Now().UTC().Unix()
-	inserted, err := rg.tcSvc.Insert(r.Context(), []models.TestCase{{
+	// <<<<<<< HEAD
+	// 	var (
+	// 		id = uuid.New().String()
+	// 		tc = []models.Mock{{
+	// 			Version: string(models.V1_BETA1),
+	// 			Kind:    string(models.HTTP_EXPORT),
+	// 			Name:    id,
+	// 		}}
+	// 		mocks = []string{}
+	// 	)
+	// 	for i, j := range data.Mocks {
+	// 		doc, err := mock.Encode(j)
+	// 		if err != nil {
+	// 			rg.logger.Error(err.Error())
+	// 		}
+	// 		tc = append(tc, doc)
+	// 		m := id + "-" + strconv.Itoa(i)
+	// 		tc[len(tc)-1].Name = m
+	// 		mocks = append(mocks, m)
+	// 	}
+
+	// 	switch data.Type {
+	// 	case "http":
+	// 		if rg.testExport {
+	// 			tc[0].Spec.Encode(&models.HttpSpec{
+	// 				// Metadata: , TODO: What should be here
+	// 				Request: models.MockHttpReq{
+	// 					Method:     models.Method(data.HttpReq.Method),
+	// 					ProtoMajor: int(data.HttpReq.ProtoMajor),
+	// 					ProtoMinor: int(data.HttpReq.ProtoMinor),
+	// 					URL:        data.HttpReq.URL,
+	// 					URLParams:  data.HttpReq.URLParams,
+	// 					Body:       data.HttpReq.Body,
+	// 					Header:     mock.ToMockHeader(data.HttpReq.Header),
+	// 				},
+	// 				Response: models.MockHttpResp{
+	// 					StatusCode:    int(data.HttpResp.StatusCode),
+	// 					Body:          data.HttpResp.Body,
+	// 					Header:        mock.ToMockHeader(data.HttpResp.Header),
+	// 					StatusMessage: data.HttpResp.StatusMessage,
+	// 					ProtoMajor:    int(data.HttpReq.ProtoMajor),
+	// 					ProtoMinor:    int(data.HttpReq.ProtoMinor),
+	// 				},
+	// 				Objects: []models.Object{{
+	// 					Type: "error",
+	// 					Data: "",
+	// 				}},
+	// 				Mocks: mocks,
+	// 				Assertions: map[string][]string{
+	// 					"noise": {},
+	// 				},
+	// 				Created: data.Captured,
+	// 			})
+	// 		} else {
+	// 			inserted, err = rg.tcSvc.InsertToDB(r.Context(), graph.DEFAULT_COMPANY, []models.TestCase{{
+	// 				ID:       uuid.New().String(),
+	// 				Created:  now,
+	// 				Updated:  now,
+	// 				Captured: data.Captured,
+	// 				URI:      data.URI,
+	// 				AppID:    data.AppID,
+	// 				HttpReq:  data.HttpReq,
+	// 				HttpResp: data.HttpResp,
+	// 				Deps:     data.Deps,
+	// 				Type:     data.Type,
+	// 			}})
+	// 		}
+	// 	case "grpc":
+	// 		if rg.testExport {
+	// 			tc[0].Kind = string(models.GRPC_EXPORT)
+	// 			tc[0].Spec.Encode(&models.GrpcSpec{
+	// 				// Metadata: , TODO: What should be here
+	// 				Request: models.MockGrpcReq{
+	// 					Method: data.GrpcMethod,
+	// 					Body:   data.GrpcReq,
+	// 				},
+	// 				Response: data.GrpcResp,
+	// 				Objects: []models.Object{{
+	// 					Type: "error",
+	// 					Data: "",
+	// 				}},
+	// 				Mocks: mocks,
+	// 				Assertions: map[string][]string{
+	// 					"noise": {},
+	// 				},
+	// 				Created: data.Captured,
+	// 			})
+	// 		} else {
+	// 			inserted, err = rg.tcSvc.InsertToDB(r.Context(), graph.DEFAULT_COMPANY, []models.TestCase{{
+	// 				ID:         uuid.New().String(),
+	// 				Created:    now,
+	// 				Updated:    now,
+	// 				Captured:   data.Captured,
+	// 				GrpcMethod: data.GrpcMethod,
+	// 				AppID:      data.AppID,
+	// 				GrpcReq:    data.GrpcReq,
+	// 				GrpcResp:   data.GrpcResp,
+	// 				Deps:       data.Deps,
+	// 				Type:       data.Type,
+	// 			}})
+	// 		}
+	// 	}
+
+	// 	if rg.testExport {
+	// 		inserted, err := rg.tcSvc.WriteToYaml(r.Context(), tc, data.TestCasePath, data.MockPath)
+	// 		if err != nil {
+	// 			rg.logger.Error("error writing testcase to yaml file", zap.Error(err))
+	// 			render.Render(w, r, ErrInvalidRequest(err))
+	// 			return
+	// 		}
+	// 		render.Status(r, http.StatusOK)
+	// 		render.JSON(w, r, map[string]string{"id": inserted[0]})
+	// 		return
+	// 	}
+
+	// =======
+	// 	inserted, err := rg.tcSvc.Insert(r.Context(), []models.TestCase{{
+	// 		ID:       uuid.New().String(),
+	// 		Created:  now,
+	// 		Updated:  now,
+	// 		Captured: data.Captured,
+	// 		URI:      data.URI,
+	// 		AppID:    data.AppID,
+	// 		HttpReq:  data.HttpReq,
+	// 		HttpResp: data.HttpResp,
+	// 		Mocks:    data.Mocks,
+	// 		Deps:     data.Deps,
+	// 	}}, data.TestCasePath, data.MockPath, graph.DEFAULT_COMPANY)
+	// >>>>>>> main
+	inserted, err = rg.tcSvc.Insert(r.Context(), []models.TestCase{{
 		ID:       uuid.New().String(),
 		Created:  now,
 		Updated:  now,
@@ -197,8 +341,11 @@ func (rg *regression) PostTC(w http.ResponseWriter, r *http.Request) {
 		AppID:    data.AppID,
 		HttpReq:  data.HttpReq,
 		HttpResp: data.HttpResp,
+		GrpcReq:  data.GrpcReq,
+		GrpcResp: data.GrpcResp,
 		Mocks:    data.Mocks,
 		Deps:     data.Deps,
+		Type:     string(data.Type),
 	}}, data.TestCasePath, data.MockPath, graph.DEFAULT_COMPANY)
 	if err != nil {
 		rg.logger.Error("error putting testcase", zap.Error(err))
@@ -226,13 +373,27 @@ func (rg *regression) DeNoise(w http.ResponseWriter, r *http.Request) {
 	// }
 
 	data := &TestReq{}
-	if err := render.Bind(r, data); err != nil {
+	var (
+		err  error
+		body string
+		ctx  context.Context
+	)
+	if err = render.Bind(r, data); err != nil {
 		rg.logger.Error("error parsing request", zap.Error(err))
 		render.Render(w, r, ErrInvalidRequest(err))
 		return
 	}
+	ctx = r.Context()
+	ctx = context.WithValue(ctx, "reqType", data.Type)
+	switch data.Type {
+	case models.HTTP:
+		body = data.Resp.Body
 
-	err := rg.svc.DeNoise(r.Context(), graph.DEFAULT_COMPANY, data.ID, data.AppID, data.Resp.Body, data.Resp.Header, data.TestCasePath)
+	case models.GRPC_EXPORT:
+		body = data.GrpcResp.Body
+	}
+
+	err = rg.svc.DeNoise(ctx, graph.DEFAULT_COMPANY, data.ID, data.AppID, body, data.Resp.Header, data.TestCasePath)
 	if err != nil {
 		rg.logger.Error("error putting testcase", zap.Error(err))
 		render.Render(w, r, ErrInvalidRequest(err))
@@ -246,13 +407,25 @@ func (rg *regression) DeNoise(w http.ResponseWriter, r *http.Request) {
 func (rg *regression) Test(w http.ResponseWriter, r *http.Request) {
 
 	data := &TestReq{}
-	if err := render.Bind(r, data); err != nil {
+	var (
+		pass bool
+		err  error
+		ctx  context.Context
+	)
+	if err = render.Bind(r, data); err != nil {
 		rg.logger.Error("error parsing request", zap.Error(err))
 		render.Render(w, r, ErrInvalidRequest(err))
 		return
 	}
+	ctx = r.Context()
+	ctx = context.WithValue(ctx, "reqType", data.Type)
+	switch data.Type {
+	case models.HTTP:
+		pass, err = rg.svc.Test(ctx, graph.DEFAULT_COMPANY, data.AppID, data.RunID, data.ID, data.TestCasePath, data.MockPath, data.Resp)
 
-	pass, err := rg.svc.Test(r.Context(), graph.DEFAULT_COMPANY, data.AppID, data.RunID, data.ID, data.TestCasePath, data.MockPath, data.Resp)
+	case models.GRPC_EXPORT:
+		pass, err = rg.svc.TestGrpc(ctx, data.GrpcResp, graph.DEFAULT_COMPANY, data.AppID, data.RunID, data.ID, data.TestCasePath, data.MockPath)
+	}
 
 	if err != nil {
 		rg.logger.Error("error putting testcase", zap.Error(err))

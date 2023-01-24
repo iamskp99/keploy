@@ -13,6 +13,8 @@ import (
 	"sync"
 
 	grpcMock "go.keploy.io/server/grpc/mock"
+	proto "go.keploy.io/server/grpc/regression"
+	"go.keploy.io/server/grpc/utils"
 	"go.keploy.io/server/pkg"
 	"go.keploy.io/server/pkg/models"
 	"go.keploy.io/server/pkg/platform/telemetry"
@@ -227,7 +229,7 @@ func (r *TestCase) writeToYaml(ctx context.Context, test []models.Mock, testCase
 	mockName := "mock" + test[0].Name[4:]
 
 	if len(test) > 1 {
-		err = r.mockFS.WriteAll(ctx, mockPath,mockName , test[1:])
+		err = r.mockFS.WriteAll(ctx, mockPath, mockName, test[1:])
 		if err != nil {
 			r.log.Error(err.Error())
 			return nil, err
@@ -281,41 +283,96 @@ func (r *TestCase) Insert(ctx context.Context, t []models.TestCase, testCasePath
 					r.log.Error(err.Error())
 				}
 				tc = append(tc, doc)
-				m := "mock-" + fmt.Sprint(lastIndex + 1) + "-"+ strconv.Itoa(i)
+				m := "mock-" + fmt.Sprint(lastIndex+1) + "-" + strconv.Itoa(i)
 				tc[len(tc)-1].Name = m
 				mocks = append(mocks, m)
 			}
-			tc[0].Spec.Encode(&models.HttpSpec{
-				// Metadata: , TODO: What should be here
-				Request: models.MockHttpReq{
-					Method:     models.Method(v.HttpReq.Method),
-					ProtoMajor: int(v.HttpReq.ProtoMajor),
-					ProtoMinor: int(v.HttpReq.ProtoMinor),
+			// tc[0].Spec.Encode(&models.HttpSpec{
+			// 	// Metadata: , TODO: What should be here
+			// 	Request: models.MockHttpReq{
+			// 		Method:     models.Method(v.HttpReq.Method),
+			// 		ProtoMajor: int(v.HttpReq.ProtoMajor),
+			// 		ProtoMinor: int(v.HttpReq.ProtoMinor),
+			// 		URL:        v.HttpReq.URL,
+			// 		URLParams:  v.HttpReq.URLParams,
+			// 		Body:       v.HttpReq.Body,
+			// 		Header:     grpcMock.ToMockHeader(v.HttpReq.Header),
+			// 		Form:       v.HttpReq.Form,
+			// 	},
+			// 	Response: models.MockHttpResp{
+			// 		StatusCode:    int(v.HttpResp.StatusCode),
+			// 		Body:          v.HttpResp.Body,
+			// 		Header:        grpcMock.ToMockHeader(v.HttpResp.Header),
+			// 		StatusMessage: v.HttpResp.StatusMessage,
+			// 		ProtoMajor:    int(v.HttpReq.ProtoMajor),
+			// 		ProtoMinor:    int(v.HttpReq.ProtoMinor),
+			// 		Binary:        v.HttpResp.Binary,
+			// 	},
+			// 	Objects: []models.Object{{
+			// 		Type: "error",
+			// 		Data: "",
+			// 	}},
+			// 	Mocks: mocks,
+			// 	Assertions: map[string][]string{
+			// 		"noise": v.Noise,
+			// 	},
+			// 	Created: v.Captured,
+			// })
+
+			testcase := &proto.Mock{
+				Version: string(models.V1Beta2),
+				Name:    id,
+				Spec: &proto.Mock_SpecSchema{
+					Objects: []*proto.Mock_Object{{
+						Type: "error",
+						Data: []byte{},
+					}},
+					Mocks: mocks,
+					Assertions: map[string]*proto.StrArr{
+						"noise": {Value: v.Noise},
+					},
+					Created: v.Captured,
+				},
+			}
+			switch v.Type {
+			case string(models.HTTP):
+				testcase.Kind = string(models.HTTP)
+				testcase.Spec.Req = &proto.HttpReq{
+					Method:     string(v.HttpReq.Method),
+					ProtoMajor: int64(v.HttpReq.ProtoMajor),
+					ProtoMinor: int64(v.HttpReq.ProtoMinor),
 					URL:        v.HttpReq.URL,
 					URLParams:  v.HttpReq.URLParams,
 					Body:       v.HttpReq.Body,
-					Header:     grpcMock.ToMockHeader(v.HttpReq.Header),
-					Form:       v.HttpReq.Form,
-				},
-				Response: models.MockHttpResp{
-					StatusCode:    int(v.HttpResp.StatusCode),
+					Header:     utils.GetProtoMap(v.HttpReq.Header),
+					Form:       grpcMock.GetProtoFormData(v.HttpReq.Form),
+				}
+				testcase.Spec.Res = &proto.HttpResp{
+					StatusCode:    int64(v.HttpResp.StatusCode),
 					Body:          v.HttpResp.Body,
-					Header:        grpcMock.ToMockHeader(v.HttpResp.Header),
+					Header:        utils.GetProtoMap(v.HttpResp.Header),
 					StatusMessage: v.HttpResp.StatusMessage,
-					ProtoMajor:    int(v.HttpReq.ProtoMajor),
-					ProtoMinor:    int(v.HttpReq.ProtoMinor),
+					ProtoMajor:    int64(v.HttpReq.ProtoMajor),
+					ProtoMinor:    int64(v.HttpReq.ProtoMinor),
 					Binary:        v.HttpResp.Binary,
-				},
-				Objects: []models.Object{{
-					Type: "error",
-					Data: "",
-				}},
-				Mocks: mocks,
-				Assertions: map[string][]string{
-					"noise": v.Noise,
-				},
-				Created: v.Captured,
-			})
+				}
+			case string(models.GRPC_EXPORT):
+				testcase.Kind = string(models.GRPC_EXPORT)
+				testcase.Spec.GrpcRequest = &proto.GrpcReq{
+					Body:   v.GrpcReq.Body,
+					Method: v.GrpcReq.Method,
+				}
+				testcase.Spec.GrpcResp = &proto.GrpcResp{
+					Body: v.GrpcResp.Body,
+					Err:  v.GrpcResp.Err,
+				}
+			}
+			tcsMock, err := grpcMock.Encode(testcase)
+			if err != nil {
+				r.log.Error(err.Error())
+				return nil, err
+			}
+			tc[0] = tcsMock
 			insertedIds, err := r.writeToYaml(ctx, tc, testCasePath, mockPath)
 			if err != nil {
 				return nil, err
